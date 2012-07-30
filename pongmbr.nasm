@@ -1,3 +1,4 @@
+BITS 16
 org 7c00h
 
 jmp short start
@@ -9,10 +10,10 @@ bally:
   dw 240		; start at half point
 
 ballxvel:
-  db 0x0		; start not moving
+  dw -1		; start not moving
 
 ballyvel:
-  db 0x0		; start not moving
+  dw 1		; start not moving
 
 bat1y:
   dw 0xf0		; start at half point
@@ -26,6 +27,9 @@ score1:
 score2:
   db 0x0		; start at no score
 
+throttle:
+  dw 0x2222		; throttle the game to manageable speeds
+
 start:
   mov ax,0x12
   int 0x10
@@ -34,13 +38,21 @@ start:
   mov dx,0x3c4		; dx = index register
   mov ax,0xF02		; INDEX = MASK MAP
   out dx,ax		; write all the bitplanes
-  mov di,4		; left bat is 4 columns from the side
-  mov ax,[bat1y]
-  call drawbat
-  mov di,76		; right bat is 4 columns from the side
-  mov ax,[bat2y]
-  call drawbat
-  call drawball
+  gameloop:
+    dec word [throttle]
+    cmp word [throttle],0
+    jne gameloop
+    mov [throttle],word 0x2222
+    mov di,4		; left bat is 4 columns from the side
+    mov ax,[bat1y]
+    call drawbat
+    mov di,76		; right bat is 4 columns from the side
+    mov ax,[bat2y]
+    call drawbat
+    call moveball
+    call checkxcollision
+    call checkycollision
+    jmp gameloop
   jmp end
 
 drawball:
@@ -105,6 +117,37 @@ drawbat:
   stosb
   add di,79
   ret
+
+checkycollision:
+  cmp [bally], word 0		; ball position counts from top left of ball
+  jle y_collide
+  cmp [bally], word 472		; ball is 8 high
+  jl end_y_collide
+  y_collide:
+    neg word [ballyvel]		; reverse
+  end_y_collide:
+    ret
+
+checkxcollision:
+  cmp [ballx], word 0		; ball position counts from top left of ball
+  jle x_collide
+  cmp [ballx], word 632		; ball is 8 wide
+  jl end_x_collide
+  x_collide:
+    neg word [ballxvel]		; reverse
+  end_x_collide:
+    ret
+  
+
+moveball:
+  call cleanball	; clear out where the ball currently is
+  mov ax,[ballxvel]
+  add [ballx],ax
+  mov ax,[ballyvel]
+  add [bally],ax
+  call drawball		; redraw ball in new position
+  ret
+  
 
 
 end:
