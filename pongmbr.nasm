@@ -1,25 +1,41 @@
 BITS 16
 org 7c00h
 
+%define THROTTLE 0x2f22
+%define SCREEN_TOP 0
+%define SCREEN_LEFT 0
+%define SCREEN_RIGHT 640
+%define LINE_Y 455
+%define BALL_HEIGHT 8
+%define BALL_WIDTH 8
+%define BAT_HEIGHT 32
+%define LEFT_BAT_COLUMN 4
+%define RIGHT_BAT_COLUMN 76
+%define LEFT_BAT_SURFACE 40
+%define RIGHT_BAT_SURFACE 607
+%define SCORE_1_POS 30
+%define SCORE_2_POS 0
+%define GAME_POINT 9
+
 jmp short start
 
 ballx:
-  dw 320		; start at half point
+  dw (SCREEN_RIGHT - SCREEN_LEFT) / 2		; start at half point
 
 bally:
-  dw 240		; start at half point
+  dw (LINE_Y - SCREEN_TOP) / 2		; start at half point
 
 ballxvel:
-  dw 1			; start moving toward right
+  dw -1			; start moving toward left
 
 ballyvel:
-  dw -1			; start moving up
+  dw 0			; start at no y velocity
 
 bat1y:
-  dw 240		; start at half point
+  dw (LINE_Y - SCREEN_TOP) / 2		; start at half point
 
 bat2y:
-  dw 240		; start at half point
+  dw (LINE_Y - SCREEN_TOP) / 2		; start at half point
 
 bat1dir:		; bat1 direction choices: -1, 0, 1. up, none, down, respectively
   db 0x0		; initialise to immobile
@@ -34,7 +50,7 @@ score2:
   db 0x0		; start at no score
 
 throttle:
-  dw 0x2222		; throttle the game to manageable speeds
+  dw THROTTLE		; throttle the game to manageable speeds
 			; adjust as necessary for a given cpu
 
 start:
@@ -49,7 +65,7 @@ start:
 
 			; draw a line across the screen to section off scores
   mov al, 0xff
-  mov di,(80 * 455)
+  mov di,(80 * LINE_Y)
   mov cx, 80
   .lineloop:
     stosb
@@ -59,7 +75,7 @@ start:
     dec word [throttle]
     cmp word [throttle],0
     jne .gameloop
-    mov [throttle],word 0x2222	; reset throttle counter
+    mov [throttle],word THROTTLE	; reset throttle counter
     
     in al, 0x60		; check for keyboard input and set bat directions accordingly
     mov bl, 0x11
@@ -79,10 +95,10 @@ start:
     mov al,[bat2dir]
     mov bx,bat2y
     call movebat
-    mov di,4		; left bat is 4 columns from the side
+    mov di,LEFT_BAT_COLUMN
     mov ax,[bat1y]
     call drawbat
-    mov di,76		; right bat is 4 columns from the side
+    mov di,RIGHT_BAT_COLUMN
     mov ax,[bat2y]
     call drawbat
 
@@ -92,60 +108,77 @@ start:
       add [ballx],ax	; move ball horizontal
       mov ax,[ballyvel]
       add [bally],ax	; move ball vertical
-      mov bl, 0xff
-      call drawball	; redraw ball in new position
 
     .checkycollision:
-      cmp [bally], word 0		; ball position counts from top left of ball
-      jle .y_collide
-      cmp [bally], word 447		; ball is 8 high
-      jl .checkxcollision
+      .ballattop:
+        cmp [bally], word SCREEN_TOP		; ball position counts from top left of ball
+        jg .ballatbottom
+        mov dx, SCREEN_TOP
+        jmp short .y_collide
+      .ballatbottom:
+        cmp [bally], word LINE_Y - BALL_HEIGHT	; ball position counts from top left of ball
+        jl .checkxcollision
+        mov dx, LINE_Y - BALL_HEIGHT
       .y_collide:
+        mov [bally], dx
         neg word [ballyvel]		; bounce y
 
     .checkxcollision:
-      cmp [ballx], word 39		; ball position counts from top left of ball
+      cmp [ballx], word LEFT_BAT_SURFACE	; ball position counts from top left of ball
       jg .check_right_x
       mov ax,[bat1y]
-      mov bx,score1
+      mov bx,score2
       jmp short .checkbaty
 
       .check_right_x:
-        cmp [ballx], word 599		; ball position counts from top left of ball
-        jl .printscores
+        cmp [ballx], word RIGHT_BAT_SURFACE - BALL_WIDTH		; ball position counts from top left of ball
+        jl .redraw
         mov ax,[bat2y]
-        mov bx,score2
+        mov bx,score1
 
       .checkbaty:
         mov cx,[bally]
-        add cx,24
+        add cx,BAT_HEIGHT / 2 + BALL_HEIGHT	; if any part of the ball touches the bat it bounces
         sub cx,ax
-        cmp cx,40
+        cmp cx,BAT_HEIGHT + BALL_HEIGHT
         jna .bounce
+						; somebody scored! increment score and reset ball
         inc byte [bx]
         call cleanball
-        mov [ballx], word 320
-        mov [bally], word 240
-        jmp short .printscores
+        mov [ballx], word (SCREEN_RIGHT - SCREEN_LEFT) / 2
+        mov [bally], word (LINE_Y - SCREEN_TOP) / 2
+        mov [ballyvel], word 0			; reset the y velocity. Don't touch the x so it will go
+						; away from the player who just scored
+        jmp short .redraw
 
       .bounce:
+        mov ax,cx			; ax will be between 0 and 40
+        sub ax,(BAT_HEIGHT + BALL_HEIGHT) / 2			; ax will be between -20 and 20
+        mov cl,5
+        idiv cl
+        cbw
+        mov [ballyvel],ax
         neg word [ballxvel]		; reverse
 
+    .redraw:
+      mov bl, 0xff
+      call drawball	; redraw ball in new position
+
     .printscores:
-      mov dl, 30
+      mov dl, SCORE_1_POS
       mov al, [score1]
       call printscore
-      mov dl, 0
+      mov dl, SCORE_2_POS
       mov al, [score2]
       call printscore
 
     .checkscore1:
-      cmp [score1], byte 9
+      cmp [score1], byte GAME_POINT
       jl .checkscore2
       jmp short end
 
     .checkscore2:
-      cmp [score2], byte 9
+      cmp [score2], byte GAME_POINT
       jl .gameloop
       jmp short end
 
@@ -168,7 +201,7 @@ drawball:
   pop cx
   mov al,0x80		; initialise al to 0b10000000
   sar al,cl		; and shift to set a 1 for every pixel in this byte
-  mov cx,8		; ball is 8 tall
+  mov cx,BALL_HEIGHT		; ball is 8 tall
   .balltop:
     not al		; the left column needs lower bits
     and al,bl
@@ -186,11 +219,11 @@ cleanball:
   ret
 
 drawbat:
-  sub ax,18		; stored positions are midpoints, advance back two further to clear above
+  sub ax,BAT_HEIGHT / 2 + 2		; stored positions are midpoints, advance back two further to clear above
   mov cx,80
   mul cx
   add di,ax
-  mov cx, 33
+  mov cx, BAT_HEIGHT
   mov ax, 0x00
   stosb
   add di,79
@@ -212,7 +245,7 @@ movebat:
     cmp al, byte 0xff
     jne .batdown
     .movebatup:
-      cmp [bx],word 19		; bat is counted from the middle
+      cmp [bx],word (BAT_HEIGHT / 2) + 3 - SCREEN_TOP		; bat is counted from the middle
       jle .batup_end
       sub [bx],word 2
       .batup_end:
@@ -221,7 +254,7 @@ movebat:
     cmp al, byte 0x01
     jne .donemove
     .movebatdown:
-      cmp [bx],word 436		; bat is counted from the middle
+      cmp [bx],word LINE_Y - (BAT_HEIGHT / 2 + 3)		; bat is counted from the middle
       jge .batdown_end
       add [bx],word 2
       .batdown_end:
