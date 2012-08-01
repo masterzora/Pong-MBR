@@ -1,29 +1,45 @@
 BITS 16
 org 7c00h
 
+; configurable constants
+; Because different computers are different speeds the throttle should be changed
+; to suit the computer's speed and desired game speed.
 %define THROTTLE 0x2f22
 %define SCREEN_TOP 0
+%define BALL_HEIGHT 8
+%define BAT_HEIGHT 32
+; The code cannot handle a score past 9 so make sure GAME_POINT is between 1 and 9 inclusive
+%define GAME_POINT 9
+%define SCORE_1_POS 30
+%define SCORE_2_POS 0
+
+; semi-configurable constants
+; these constants can be safely changed but may not have
+; the changes one would expect
+; SCREEN_LEFT and SCREEN_RIGHT are only useful for the ball start point
 %define SCREEN_LEFT 0
 %define SCREEN_RIGHT 640
+; LINE_Y can be moved anywhere on the field and will still be the bottom
+; of the field but changing this value may lead to poor aesthetics.
+; If you must change the field height it is suggested you alter SCREEN_TOP
+; instead.
 %define LINE_Y 455
-%define BALL_HEIGHT 8
-%define BALL_WIDTH 8
-%define BAT_HEIGHT 32
+
+; non-configurable constants
+; one way or another these each rely on something hardcoded
 %define LEFT_BAT_COLUMN 4
 %define RIGHT_BAT_COLUMN 76
 %define LEFT_BAT_SURFACE 40
 %define RIGHT_BAT_SURFACE 607
-%define SCORE_1_POS 30
-%define SCORE_2_POS 0
-%define GAME_POINT 9
+%define BALL_WIDTH 8
 
 jmp short start
 
 ballx:
-  dw (SCREEN_RIGHT - SCREEN_LEFT) / 2		; start at half point
+  dw (SCREEN_RIGHT - SCREEN_LEFT) / 2 + SCREEN_LEFT		; start at half point
 
 bally:
-  dw (LINE_Y - SCREEN_TOP) / 2		; start at half point
+  dw (LINE_Y - SCREEN_TOP) / 2 + SCREEN_TOP		; start at half point
 
 ballxvel:
   dw -1			; start moving toward left
@@ -32,10 +48,10 @@ ballyvel:
   dw 0			; start at no y velocity
 
 bat1y:
-  dw (LINE_Y - SCREEN_TOP) / 2		; start at half point
+  dw (LINE_Y - SCREEN_TOP) / 2 + SCREEN_TOP		; start at half point
 
 bat2y:
-  dw (LINE_Y - SCREEN_TOP) / 2		; start at half point
+  dw (LINE_Y - SCREEN_TOP) / 2 + SCREEN_TOP		; start at half point
 
 bat1dir:		; bat1 direction choices: -1, 0, 1. up, none, down, respectively
   db 0x0		; initialise to immobile
@@ -154,7 +170,7 @@ start:
       .bounce:
         mov ax,cx			; ax will be between 0 and 40
         sub ax,(BAT_HEIGHT + BALL_HEIGHT) / 2			; ax will be between -20 and 20
-        mov cl,5
+        mov cl,(BAT_HEIGHT + BALL_HEIGHT) / 8		; we want 8 segments on the bat
         idiv cl
         cbw
         mov [ballyvel],ax
@@ -245,7 +261,7 @@ movebat:
     cmp al, byte 0xff
     jne .batdown
     .movebatup:
-      cmp [bx],word (BAT_HEIGHT / 2) + 3 - SCREEN_TOP		; bat is counted from the middle
+      cmp [bx],word (BAT_HEIGHT / 2) + 3 + SCREEN_TOP		; bat is counted from the middle
       jle .batup_end
       sub [bx],word 2
       .batup_end:
