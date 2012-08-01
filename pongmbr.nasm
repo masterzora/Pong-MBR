@@ -62,40 +62,16 @@ start:
     mov [throttle],word 0x2222	; reset throttle counter
     
     in al, 0x60		; check for keyboard input and set bat directions accordingly
-    .check_w:
-      cmp al, 0x11
-      jne .check_w_up
-      mov [bat1dir], byte 0xff
-    .check_w_up:
-      cmp al, 0x91
-      jne .check_s
-      mov [bat1dir], byte 0x0
-    .check_s:
-      cmp al, 0x1f
-      jne .check_s_up
-      mov [bat1dir], byte 0x01
-    .check_s_up:
-      cmp al, 0x9f
-      jne .check_o
-      mov [bat1dir], byte 0x0
-    .check_o:
-      cmp al, 0x18
-      jne .check_o_up
-      mov [bat2dir], byte 0xff
-    .check_o_up:
-      cmp al, 0x98
-      jne .check_l
-      mov [bat2dir], byte 0x0
-    .check_l:
-      cmp al, 0x26
-      jne .check_l_up
-      mov [bat2dir], byte 0x01
-    .check_l_up:
-      cmp al, 0xa6
-      jne .nokey
-      mov [bat2dir], byte 0x0
-
-    .nokey:
+    mov bl, 0x11
+    mov dl, 0x1f
+    mov si, bat1dir
+    push ax
+    call testinput
+    mov bl, 0x18
+    mov dl, 0x26
+    mov si, bat2dir
+    pop ax
+    call testinput
 			; move and redraw bats
     mov al,[bat1dir]
     mov bx,bat1y
@@ -183,13 +159,13 @@ drawball:
   mov ax,[ballx]
   mov cx,8
   div cx		; convert bit count to byte count
-  mov si,dx
+  push dx
   mov di,ax
   mov ax,[bally]
   mov cx,80
   mul cx		; there are 80 columns per row
   add di,ax
-  mov cx,si
+  pop cx
   mov al,0x80		; initialise al to 0b10000000
   sar al,cl		; and shift to set a 1 for every pixel in this byte
   mov cx,8		; ball is 8 tall
@@ -232,14 +208,15 @@ drawbat:
   ret
 
 movebat:
-  cmp al, byte 0xff
-  jne .batdown
-  .movebatup:
-    cmp [bx],word 19		; bat is counted from the middle
-    jle .batup_end
-    sub [bx],word 2
-    .batup_end:
-      ret
+  .batup:
+    cmp al, byte 0xff
+    jne .batdown
+    .movebatup:
+      cmp [bx],word 19		; bat is counted from the middle
+      jle .batup_end
+      sub [bx],word 2
+      .batup_end:
+        ret
   .batdown:
     cmp al, byte 0x01
     jne .donemove
@@ -260,6 +237,27 @@ printscore:
   add ax, 0x0830
   int 0x10
   ret
+
+testinput:
+  mov cl, 0xff
+  .checkloop:
+    .check_up:
+      cmp al, bl
+      jne .check_down
+      mov [si], cl
+    .check_down:
+      neg cl			; -1 -> 1; 0 -> 0
+      cmp al, dl
+      jne .donecheck
+      mov [si], cl
+    .donecheck:
+      and cl, 0x0		; keyups set dir to 0
+      xor al, 0x80		; key up = key down + 0x80
+      test al, 0x80		; if the 0x80 bit was already unset there's no point in looping
+      jz .checkloop
+
+    ret
+
 
 times 510-($-$$) DB 0
 DW 0xAA55
