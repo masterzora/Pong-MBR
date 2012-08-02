@@ -2,10 +2,9 @@ BITS 16
 org 7c00h
 
 ; configurable constants
-; This timer can be adjusted to increase or decrease game speed.
-; Larger numbers (up to 65535) slow the game down, smaller numbers (down to 1)
-; speed it up.  Game speed is theoretically platform independent.
-%define TIMER 5500
+; Because different computers are different speeds the throttle should be changed
+; to suit the computer's speed and desired game speed.
+%define THROTTLE 0x2f22
 %define SCREEN_TOP 0
 %define BALL_HEIGHT 8
 %define BAT_HEIGHT 32
@@ -66,34 +65,14 @@ score1:
 score2:
   db 0x0		; start at no score
 
-loopready:
-  db 0x1
-
-timer_isr:
-  mov [loopready], byte 0x0
-  iret
+throttle:
+  dw THROTTLE		; throttle the game to manageable speeds
+			; adjust as necessary for a given cpu
 
 start:
   mov ax,0x12
   int 0x10
-
-  ; set the timer
-  mov al, 0x36
-  out 0x43, al
-  mov ax, TIMER
-  out 0x40, al
-  mov al, ah
-  out 0x40, al
-
-  ; hook our custom sub to the timer interrupt
-  mov ax, 0
-  mov es, ax
-  pushf
-  cli
-  mov word [es:0x1c*4], timer_isr
-  mov word [es:0x1c*4 + 2], cs
-  popf
-  
+    
   mov ax,0xa000
   mov es,ax		; ES points to video memory
   mov dx,0x3c4		; dx = index register
@@ -101,7 +80,6 @@ start:
   out dx,ax		; write all the bitplanes
 
 			; draw a line across the screen to section off scores
-
   mov al, 0xff
   mov di,(80 * LINE_Y)
   mov cx, 80
@@ -110,8 +88,10 @@ start:
     loop .lineloop, cx
 
   .gameloop:		; main game loop
-    cmp byte [loopready],0
+    dec word [throttle]
+    cmp word [throttle],0
     jne .gameloop
+    mov [throttle],word THROTTLE	; reset throttle counter
     
     in al, 0x60		; check for keyboard input and set bat directions accordingly
     mov bl, 0x11
@@ -215,13 +195,10 @@ start:
 
     .checkscore2:
       cmp [score2], byte GAME_POINT
-      jl .gamelooptail
+      jl .gameloop
       jmp short end
 
-    .gamelooptail:
-      mov [loopready], byte 0x1
-      
-      jmp .gameloop
+    jmp .gameloop
 
 end:
   jmp short end
@@ -329,6 +306,7 @@ testinput:
       jz .checkloop
 
     ret
+
 
 times 510-($-$$) DB 0
 DW 0xAA55
